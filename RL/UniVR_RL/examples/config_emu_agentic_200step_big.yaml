@@ -1,0 +1,186 @@
+# Copyright 2026 ByteDance and/or its affiliates.
+# 30-step bring-up config for the ``emu_agentic`` rollout backend.
+#
+# The rollout (``verl/workers/rollout/emu_agentic``) re-uses
+# ``emu_infer_fast/run.py::EmuAgent`` *verbatim*: same SFT prompt assembler,
+# same tool registry, same force-draw branch, same vLLM sampling params.
+# verl only owns weight-sync (FSDP→vLLM) and the GRPO loop.
+#
+# Reward function ``emu3_agentic.py`` is the bring-up (format + native draw)
+# reward — no VLM/Gemini network round-trip needed. Once 30 steps train clean
+# we can swap to the dual reward without touching this file.
+
+data:
+  # Set on the command line by the launcher. A simple jsonl file whose
+  # rows are ``{"question": "..."}`` — exactly what
+  # emu_infer_fast/run.py reads.
+  train_files: ""
+  val_files: ""
+  prompt_key: question
+  answer_key: answer
+  image_key: images
+  video_key: videos
+  image_dir: null
+  video_fps: 2.0
+  # Emu3.5 max_position_embeddings=32768. Prompt = system + "User: " + question
+  # ≈ 1100 tokens worst case (observed step1: prompt_mean=1090, prompt_max=1125).
+  # 16k+16k earlier caused 60-78% response truncation (resp_max all clipped to
+  # 16384) — agent's caption + image block landed past the cutoff so the actor
+  # learned no signal on the draw side. Re-split: 4k prompt budget (plenty of
+  # headroom over the 1.1k observed max) + 28k response = 32k total = vLLM
+  # max_model_len. Should drop response_clip_ratio to ~0.
+  max_prompt_length: 4096
+  max_response_length: 28672
+  rollout_batch_size: 16
+  mini_rollout_batch_size: null
+  val_batch_size: 8
+  format_prompt: null
+  override_chat_template: null
+  shuffle: true
+  seed: 6666
+  min_pixels: null
+  max_pixels: null
+  filter_overlong_prompts: false
+  enable_cfg: false
+  interleaved_text: false
+
+algorithm:
+  adv_estimator: grpo
+  disable_kl: false
+  use_kl_loss: true
+  kl_penalty: low_var_kl
+  kl_coef: 1.0e-2
+  online_filtering: false
+  filter_key: overall
+  filter_low: 0.01
+  filter_high: 0.99
+
+worker:
+  actor:
+    # verl's check: ``rollout_batch_size % global_batch_size == 0`` is in
+    # PROMPT units, not trajectory units. With rollout_batch_size=16 and
+    # n=8 we have 128 trajectories/step; setting global_batch_size=16 means
+    # "one optimizer step per training step, accumulating gradients across
+    # all 16 prompts (= all 128 trajectories)". micro=1 keeps peak memory
+    # unchanged; 8 GPUs × micro=1 = 8 traj/forward, so each step does
+    # 128/8 = 16 forward+backward micro-batches before one optimizer.step().
+    global_batch_size: 16
+    micro_batch_size_per_device_for_update: 1
+    micro_batch_size_per_device_for_experience: 1
+    max_grad_norm: 1.0
+    padding_free: false
+    dynamic_batching: false
+    ulysses_size: 1
+    model:
+      # Set by launcher.
+      model_path: ""
+      tokenizer_path: ""
+      enable_gradient_checkpointing: true
+      trust_remote_code: true
+      freeze_vision_tower: false
+    optim:
+      lr: 1.0e-6
+      weight_decay: 1.0e-2
+      strategy: adamw_bf16
+      lr_warmup_ratio: 0.0
+    fsdp:
+      enable_full_shard: true
+      enable_cpu_offload: false
+      enable_rank0_init: true
+      torch_dtype: bf16
+    offload:
+      offload_params: true
+      offload_optimizer: true
+
+  rollout:
+    # ───────── route to the in-process emu_infer_fast rollout ─────────
+    name: emu_agentic
+    n: 8                          # GRPO group size — 8 rollouts per prompt
+    temperature: 1.0
+    top_p: 1.0
+    limit_images: 0
+    # Conservative GPU budget; the agentic rollout shares the same vLLM engine
+    # as the actor's sharding manager, so leave headroom for FSDP all-gather.
+    gpu_memory_utilization: 0.6
+    enforce_eager: true            # B300 sm_103a: see ENV.md §2
+    enable_chunked_prefill: false  # multi-pass image sampler requires off
+    # Rollout TP=1 to match the scaffold's verified config (server.gpu*.log
+    # shows TP=1 producing good images). With 8 ranks → DP=8, each engine
+    # owns the whole 34B model on its B300 (plenty of headroom).
+    tensor_parallel_size: 1
+    disable_tqdm: false
+    max_num_batched_tokens: 32768
+    max_num_seqs: 16
+    max_model_len: 32768
+
+    # Emu3 CFG — agentic rollout honours the env vars EMU_TEXT_CFG / EMU_IMAGE_CFG
+    # so these fields are documentation only (no code-path reads them under
+    # name=emu_agentic). Keep them aligned for sanity.
+    emu3_cfg_enabled: true
+    emu3_guidance_scale: 3.0
+    emu3_text_top_k: 1024
+    emu3_text_top_p: 0.9
+    emu3_text_temperature: 1.0
+    emu3_visual_top_k: 5120
+    emu3_visual_top_p: 1.0
+    emu3_visual_temperature: 1.0
+    image_area: 1048576
+    emu3_max_new_tokens: 8192
+    emu3_temperature: 1.0
+    emu3_top_p: 1.0
+    emu3_top_k: 131072
+    emu3_vq_path: "${oc.env:EMU_VQ_PATH,../../checkpoints/Emu3.5-VisionTokenizer}"
+    emu3_vq_type: ibq
+
+    # Bring-up reward needs no decoded image bytes (it's pure format).
+    enable_image_decode_for_reward: false
+
+    val_override_config:
+      temperature: 0.6
+      top_p: 0.95
+      n: 1
+
+  ref:
+    fsdp:
+      enable_full_shard: true
+      enable_cpu_offload: false
+      enable_rank0_init: true
+    offload:
+      offload_params: true
+
+  reward:
+    # Gen-Searcher-style dual reward (caption text-judge + image VLM-judge),
+    # both scored on Emu's own outputs via the Doubao / Ark judge.
+    reward_function: ./examples/reward_function/emu_agentic_gensearcher_dual.py:compute_score
+    skip_special_tokens: false
+    reward_function_kwargs:
+      alpha: 0.5                  # R_judge = 0.5 * R_image + 0.5 * R_caption
+      judge_weight: 0.8
+      format_weight: 0.1
+      draw_weight: 0.05
+      length_penalty_weight: 0.05
+      soft_length_budget: 6000
+      no_image_penalty: 0.3
+      max_workers: 16
+      max_caption_chars: 4000
+      enable_caption_reward: true
+      enable_image_reward: true
+
+trainer:
+  total_epochs: 100             # Step-bounded, epoch is just a high cap.
+  max_steps: 200                # ← 200-step main run
+  project_name: Emu3_Agentic_RL_Roll
+  experiment_name: emu_agentic_200step_big
+  logger: ["console", "file", "wandb"]   # wandb cloud via company proxy + API key
+  nnodes: 1
+  n_gpus_per_node: 8
+  max_try_make_batch: 20
+  val_freq: 0
+  val_before_train: false
+  val_only: false
+  val_generations_to_log: 0
+  save_freq: -1                 # 30 steps doesn't need a ckpt; keep disk clean.
+  save_limit: 1
+  save_model_only: true
+  save_checkpoint_path: null
+  load_checkpoint_path: null

@@ -1,0 +1,144 @@
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+
+ENV TZ="Asia/Shanghai"
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CONDA_DIR=/opt/conda
+ENV ENV_NAME=agent
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PATH=${CONDA_DIR}/envs/${ENV_NAME}/bin:${CONDA_DIR}/bin:${PATH}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN set -eux; \
+    source /etc/os-release; \
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak; \
+    printf '%s\n' \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME} main universe restricted multiverse" \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME}-updates main universe restricted multiverse" \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME}-security main universe restricted multiverse" \
+        > /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        tmux \
+        wget \
+        build-essential \
+        libsndfile1 \
+        nodejs \
+        npm \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN npm i -g @openai/codex
+
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main || true; \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true; \
+    conda create -n "${ENV_NAME}" python=3.12 -y \
+    && conda clean -afy
+
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.8.0 \
+    && pip install --no-cache-dir \
+        https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl \
+    && pip install --no-cache-dir vllm==0.11.0 \
+    && pip install --no-cache-dir \
+        "pillow>=9.0.0" \
+        "numpy>=1.21.0" \
+        "tqdm>=4.64.0" \
+        "protobuf>=3.20.0" \
+        "tiktoken>=0.12.0" \
+        imageio==2.37.0 \
+        imageio-ffmpeg==0.6.0 \
+        omegaconf==2.3.0 \
+        gradio==5.49.1 \
+        datasets \
+        nvitop \
+        deepspeed \
+        rich \
+        fastapi \
+        uvicorn \
+    && pip install --no-cache-dir --upgrade \
+        "tokenizers>=0.22.0,<=0.23.0" \
+        "huggingface-hub>=0.34.0,<1.0" \
+    && pip install --no-cache-dir --force-reinstall --no-deps transformers==4.57.3 \
+    && python -c "from transformers.models import qwen3_vl; print('transformers qwen3_vl OK')"
+
+RUN pip install --no-cache-dir \
+        accelerate \
+        codetiming \
+        liger-kernel \
+        mathruler \
+        pylatexenc \
+        qwen-vl-utils \
+        tensordict \
+        torchdata==0.11.0 \
+        peft==0.19.1 \
+        "ray[default]==2.52.1" \
+        loguru \
+        pandas \
+        pyarrow \
+        fastparquet \
+        wandb \
+        pyvers \
+    && pip install --no-cache-dir --upgrade "scipy>=1.13" "numba>=0.62" \
+    && python -c "from importlib.metadata import version; pkgs=['accelerate','codetiming','liger-kernel','mathruler','pylatexenc','qwen-vl-utils','tensordict','wandb','pyvers','scipy','numba']; print({p: version(p) for p in pkgs})" \
+    && PEFT_CONSTS=/opt/conda/envs/${ENV_NAME}/lib/python3.12/site-packages/peft/utils/constants.py \
+    && grep -q "^from transformers import BloomPreTrainedModel$" "$PEFT_CONSTS" \
+    && sed -i 's|^from transformers import BloomPreTrainedModel$|try:\n    from transformers import BloomPreTrainedModel\nexcept ImportError:\n    from transformers.models.bloom.modeling_bloom import BloomPreTrainedModel|' "$PEFT_CONSTS" \
+    && python -c "import ray, torchdata, peft, deepspeed; print('ray', ray.__version__, 'torchdata', torchdata.__version__, 'peft', peft.__version__, 'deepspeed', deepspeed.__version__)" \
+    && python -c "from peft import get_peft_model, PeftModel, TaskType, get_peft_model_state_dict; print('peft public API OK')"
+
+RUN pip install --no-cache-dir "qwen-agent[gui,rag,code_interpreter,mcp]" \
+    && pip install --no-cache-dir soundfile \
+    && pip install --no-cache-dir --upgrade "pydantic>=2.11.7" "pydantic-core>=2.33.0" \
+    && pip install --no-cache-dir --force-reinstall --no-deps transformers==4.57.3 \
+    && python -c "from transformers.models import qwen3_vl; import pydantic, vllm; print('pydantic', pydantic.VERSION, 'vllm', vllm.__version__)"
+
+RUN pip install --no-cache-dir --upgrade \
+        --target /opt/conda/envs/${ENV_NAME}/lib/python3.12/site-packages \
+        nvidia-cuda-nvcc-cu12==12.9.86 \
+    && /opt/conda/envs/${ENV_NAME}/lib/python3.12/site-packages/nvidia/cuda_nvcc/bin/ptxas --version \
+    && /opt/conda/envs/${ENV_NAME}/lib/python3.12/site-packages/nvidia/cuda_nvcc/bin/ptxas --help > /tmp/ptxas_help.txt \
+    && grep -q sm_103 /tmp/ptxas_help.txt \
+    && rm /tmp/ptxas_help.txt
+
+RUN pip install --no-cache-dir --force-reinstall --no-deps \
+        nvidia-cublas-cu12 \
+        nvidia-cuda-cupti-cu12 \
+        nvidia-cuda-nvrtc-cu12 \
+        nvidia-cuda-runtime-cu12 \
+        nvidia-cudnn-cu12 \
+        nvidia-cufft-cu12 \
+        nvidia-cufile-cu12 \
+        nvidia-curand-cu12 \
+        nvidia-cusolver-cu12 \
+        nvidia-cusparse-cu12 \
+        nvidia-cusparselt-cu12 \
+        nvidia-nccl-cu12 \
+        nvidia-nvjitlink-cu12 \
+        nvidia-nvtx-cu12 \
+    && python -c "import torch; print('torch', torch.__version__, 'cuda', torch.version.cuda)" \
+    && python -c "import vllm, flash_attn, transformers, qwen_agent, qwen_vl_utils, soundfile, peft, ray, tensordict, wandb, accelerate, codetiming; print('vllm', vllm.__version__, 'flash', flash_attn.__version__, 'trans', transformers.__version__, 'qwen-ag', qwen_agent.__version__, 'peft', peft.__version__, 'ray', ray.__version__)"
+
+ENV TORCHDYNAMO_DISABLE=1
+ENV TORCH_COMPILE_DISABLE=1
+ENV VLLM_DISABLE_COMPILE_CACHE=1
+ENV TORCHINDUCTOR_FORCE_DISABLE_CACHES=1
+ENV EMU_ENFORCE_EAGER=1
+ENV TRITON_PTXAS_PATH=/opt/conda/envs/agent/lib/python3.12/site-packages/nvidia/cuda_nvcc/bin/ptxas
+ENV VLLM_USE_V1=1
+ENV VLLM_LOGGING_LEVEL=WARN
+ENV VLLM_ALLREDUCE_USE_SYMM_MEM=0
+ENV NCCL_DEBUG=WARN
+ENV TORCH_NCCL_AVOID_RECORD_STREAMS=1
+ENV PYTORCH_CUDA_ALLOC_CONF=expandable_segments:False
+ENV CUDA_DEVICE_MAX_CONNECTIONS=1
+ENV TOKENIZERS_PARALLELISM=false
+ENV WANDB_MODE=offline
+ENV WANDB_DISABLED=true
+
+RUN echo "source ${CONDA_DIR}/etc/profile.d/conda.sh" >> /root/.bashrc \
+    && echo "conda activate ${ENV_NAME}" >> /root/.bashrc
+
+WORKDIR /workspace

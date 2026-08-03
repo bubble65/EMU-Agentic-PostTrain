@@ -1,0 +1,32 @@
+# Raw datasets and generated artifacts
+Data/
+**/outputs/
+**/workspace/
+**/checkpoints/
+**/rollout_validation/
+**/debug_outputs/
+**/logs/
+*.log
+
+# Python cache and build products
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+htmlcov/
+.coverage
+
+# Local env and OS/editor files
+.venv/
+venv/
+env/
+ENV/
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/

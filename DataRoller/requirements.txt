@@ -1,0 +1,2 @@
+pip install qwen-agent[gui,rag,code_interpreter,mcp]
+pip install soundfile

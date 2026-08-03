@@ -1,0 +1,61 @@
+FROM pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+
+ENV TZ="Asia/Shanghai"
+ENV DEBIAN_FRONTEND=noninteractive
+ENV CONDA_DIR=/opt/conda
+ENV ENV_NAME=agent
+ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+ENV PATH=${CONDA_DIR}/envs/${ENV_NAME}/bin:${CONDA_DIR}/bin:${PATH}
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN set -eux; \
+    source /etc/os-release; \
+    cp /etc/apt/sources.list /etc/apt/sources.list.bak; \
+    printf '%s\n' \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME} main universe restricted multiverse" \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME}-updates main universe restricted multiverse" \
+        "deb http://archive.ubuntu.com/ubuntu/ ${VERSION_CODENAME}-security main universe restricted multiverse" \
+        > /etc/apt/sources.list
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        curl \
+        git \
+        tmux \
+        wget \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/main || true; \
+    conda tos accept --override-channels --channel https://repo.anaconda.com/pkgs/r || true; \
+    conda create -n "${ENV_NAME}" python=3.12 -y \
+    && conda clean -afy
+
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cu128 torch==2.8.0 \
+    && pip install --no-cache-dir \
+        https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.3/flash_attn-2.8.3+cu12torch2.8cxx11abiTRUE-cp312-cp312-linux_x86_64.whl \
+    && pip install --no-cache-dir vllm==0.11.0 \
+    && pip install --no-cache-dir \
+        "pillow>=9.0.0" \
+        "numpy>=1.21.0" \
+        "tqdm>=4.64.0" \
+        "protobuf>=3.20.0" \
+        "tiktoken>=0.12.0" \
+        imageio==2.37.0 \
+        imageio-ffmpeg==0.6.0 \
+        omegaconf==2.3.0 \
+        gradio==5.49.1 \
+        datasets \
+        nvitop \
+        trl==0.9.6 \
+        deepspeed \
+        rich \
+        fastapi \
+        uvicorn
+
+RUN echo "source ${CONDA_DIR}/etc/profile.d/conda.sh" >> /root/.bashrc \
+    && echo "conda activate ${ENV_NAME}" >> /root/.bashrc
+
+WORKDIR /workspace
