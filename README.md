@@ -159,7 +159,7 @@ conda activate toolartist-sft
 bash env_scripts/sft_env.sh
 ```
 
-#### Prepare Data
+#### ✏️ Prepare Data
 
 Prepare the following local assets:
 
@@ -209,7 +209,7 @@ Data/SFT/converted_v2/sft.jsonl
 ```
 
 
-#### Run
+#### 🏃 Run
 
 Launch single-node distributed SFT:
 
