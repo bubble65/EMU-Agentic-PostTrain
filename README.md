@@ -1,94 +1,105 @@
-# ToolArtist
+<div align="center">
 
-ToolArtist is a post-training project for tool-augmented image generation agents. The currently released data construction module is **DataRoller**, which rolls out multi-turn agent trajectories with web search, image search, and image generation tools. The generated trajectories can be used for later SFT and RL stages.
+# ToolArtist: Agentic Post-Training for Image Generation
 
-> [!NOTE]
-> This repository is organized around three stages: **Data Construction**, **SFT**, and **RL**. The open-source part currently focuses on DataRoller.
+**Data construction, supervised fine-tuning, and reinforcement learning for tool-augmented image generation agents**
 
-## Data Construction
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bubble65/EMU-Agentic-PostTrain)
+[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 
-`DataRoller/` is the data construction module of ToolArtist. Given a batch of image generation requests, it runs a ReAct-style multimodal agent that can proactively search for factual information, retrieve reference images, generate images, inspect the generated results, and save the full rollout trajectory.
+</div>
 
-The workflow is:
+ToolArtist is an end-to-end post-training stack for an **agentic image generation model**. The agent can search the web, retrieve visual references, read external information, generate images, inspect intermediate results, and refine its answer over multiple tool-use rounds.
 
-1. Load image generation tasks from `DataRoller/data/{DATASET}.jsonl`.
-2. Use `text_search` to retrieve factual information from the web.
-3. Use `image_search` to obtain visual references.
-4. Use `draw` to generate or edit images.
-5. Let the agent inspect the generated result and iterate when needed.
-6. Save the complete messages, final prediction, termination status, and generated image path.
+The repository follows a three-stage recipe:
 
-### Project Structure
+1. **Data Construction** — roll out multi-turn tool-use trajectories.
+2. **SFT** — convert successful trajectories into tokenized multimodal samples and fine-tune Emu3.5.
+3. **RL** — optimize the SFT checkpoint with agentic GRPO and online image-generation rollouts.
+
+<p align="center">
+  <img src="show/introv1.png" width="92%" alt="ToolArtist overview">
+</p>
+
+## Contents
+
+- [Method](#method)
+- [Repository Layout](#repository-layout)
+- [1. Data Construction](#1-data-construction)
+- [2. Supervised Fine-Tuning](#2-supervised-fine-tuning)
+- [3. Reinforcement Learning](#3-reinforcement-learning)
+  - [Standalone Rollout](#31-standalone-rollout)
+  - [RL Training](#32-rl-training)
+- [Acknowledgements](#acknowledgements)
+
+## Method
+
+ToolArtist first collects agent trajectories with external search and image-generation tools. Successful trajectories are converted into the Emu3.5 interleaved text-image token format for cold-start SFT. The resulting checkpoint is then optimized with GRPO: each prompt produces a group of online agentic rollouts, and the policy is updated using format, drawing, caption-quality, and image-quality rewards.
+
+<p align="center">
+  <img src="show/methodv1.png" width="96%" alt="ToolArtist training method">
+</p>
+
+## Repository Layout
 
 ```text
-DataRoller/
-├── data/
-│   ├── gen_sft.jsonl
-│   └── gen_rl.jsonl
-├── scrpits/
-│   └── run.sh
-├── prompt.py
-├── react_agent.py
-├── run_multi_react.py
-├── tool_draw.py
-├── tool_imagesearch.py
-├── tool_reader.py
-├── tool_textsearch.py
-└── requirements.txt
+EMU-Agentic-PostTrain/
+├── Agentic_Image_Gen/       # canonical agent loop and standalone rollout service
+├── DataRoller/              # data construction with search/read/draw tools
+├── Emu3.5/                  # Emu3.5 model code and tokenizer
+├── RL/
+│   ├── UniVR_RL/            # GRPO training framework and agentic rollout backend
+│   └── UniVR_SFT/           # supporting Emu3.5 components
+├── SFT/                     # trajectory conversion, verification, and SFT scripts
+├── env_scripts/             # reproducible SFT/RL environments and Dockerfiles
+└── show/                    # overview and method figures
 ```
 
-Main files:
-
-- `run_multi_react.py`: Entry point for data rollout. It reads `data/{DATASET}.jsonl` and writes rollout results.
-- `react_agent.py`: Multi-turn ReAct agent implementation, including model calls, tool calls, multimodal message handling, and output formatting.
-- `prompt.py`: System prompt and user prompt template.
-- `tool_textsearch.py`: Web text search tool based on Serper and Jina Reader.
-- `tool_imagesearch.py`: Image search tool based on Serper Images and Jina Reader.
-- `tool_draw.py`: Image generation and image editing tool based on the Gemini image API.
-- `tool_reader.py`: Ark-model-based document reader for extracting query-relevant information from fetched web pages.
-
-### Environment Setup
-
-We recommend Python 3.10 or higher.
+Clone the repository and enter its root directory before following the commands below:
 
 ```bash
-cd DataRoller
-
-conda create -n toolartist-dataroller python=3.10 -y
-conda activate toolartist-dataroller
+git clone git@github.com:bubble65/EMU-Agentic-PostTrain.git
+cd EMU-Agentic-PostTrain
 ```
 
-Install dependencies:
+> [!IMPORTANT]
+> Model checkpoints, raw datasets, converted data, generated images, and experiment outputs are intentionally excluded from Git. Prepare them locally under the paths shown below. Never commit API keys.
+
+## 1. Data Construction
+
+`DataRoller/` runs a ReAct-style multimodal agent over image-generation requests. During a rollout, the agent can call:
+
+- `text_search` for factual web retrieval;
+- `image_search` for visual references;
+- `reader` for query-focused page extraction;
+- `draw` for image generation and editing.
+
+The full conversation, tool calls, final prediction, output image path, and termination state are saved as JSONL and can be used to prepare SFT or RL data.
+
+### Environment
+
+Python 3.10 or newer is recommended for data construction.
 
 ```bash
+conda create -n toolartist-data python=3.10 -y
+conda activate toolartist-data
+
 pip install "qwen-agent[gui,rag,code_interpreter,mcp]"
 pip install soundfile openai pillow requests tiktoken rich
 ```
 
-The current `requirements.txt` keeps the original install commands. You can also run:
+Configure the model and tool services:
 
 ```bash
-bash requirements.txt
-pip install openai pillow requests tiktoken rich
-```
-
-### API Configuration
-
-DataRoller requires three external services:
-
-- `ARK_API_KEY`: Used by the main rollout model and the document reader.
-- `SERPER_API_KEY`: Used by text search and image search.
-- `GEMINI_API_KEY`: Used by the `draw` tool for image generation and editing.
-
-Set the environment variables before running:
-
-```bash
+# Main rollout model and document reader
 export ARK_API_KEY="your-ark-api-key"
 export ARK_MODEL="doubao-seed-2-0-pro-260215"
 export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
 
+# Text and image search
 export SERPER_API_KEY="your-serper-api-key"
 
+# Image generation / editing
 export GEMINI_API_KEY="your-gemini-api-key"
 export GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta"
 export GEMINI_MODEL="gemini-3-pro-image"
@@ -97,7 +108,7 @@ export GEMINI_IMAGE_SIZE="1K"
 export GEMINI_RESPONSE_MIME_TYPE="image/png"
 ```
 
-Optional runtime settings:
+Optional runtime controls:
 
 ```bash
 export MODEL_NAME="doubao2.0"
@@ -107,40 +118,30 @@ export MAX_ITEMS=10
 export MAX_OUTPUT_TOKENS=4096
 export TEMPERATURE=0.0
 export TOP_P=1.0
-
-# Optional proxies, if required by your environment.
-export DEEP_SEARCH_PROXY=""
-export DEEP_BROWSE_PROXY=""
 ```
-
-Do not commit real API keys. The keys in `DataRoller/scrpits/run.sh` are placeholders and should be replaced locally or read from your shell environment.
 
 ### Input Data
 
-Input files are placed under `DataRoller/data/`. The filename is selected by `DATASET`:
-
-```text
-DATASET=gen_sft -> DataRoller/data/gen_sft.jsonl
-DATASET=gen_rl  -> DataRoller/data/gen_rl.jsonl
-```
-
-Each line should be a JSON object. Recommended format:
+Place one JSON object per line in `DataRoller/data/<dataset>.jsonl`:
 
 ```json
-{"idx": 1, "question": "A professional conference stage scene ...", "answer": "xxx"}
+{"idx": 1, "question": "Create a cinematic image of ...", "answer": ""}
 ```
 
-Fields:
+- `question` is the image-generation request.
+- `answer` is retained in the rollout record and may be an empty placeholder.
+- `idx` is optional.
 
-- `question`: Required. The image generation request.
-- `answer`: Required. The reference answer or placeholder answer. It will be copied into the output.
-- `idx`: Optional sample index.
+Two example inputs are included:
 
-The script also supports some `messages`-style inputs, as long as it can extract the user question. Each sample still needs an `answer` field.
+```text
+DataRoller/data/gen_sft.jsonl
+DataRoller/data/gen_rl.jsonl
+```
 
-### Running DataRoller
+### Run
 
-Run the rollout entry directly:
+Start with a small batch:
 
 ```bash
 cd DataRoller
@@ -153,106 +154,43 @@ python3 -u run_multi_react.py \
   --max_items "$MAX_ITEMS"
 ```
 
-Example: run the first 10 samples from `gen_sft`:
-
-```bash
-cd DataRoller
-
-export DATASET="gen_sft"
-export MODEL_NAME="doubao2.0"
-export OUTPUT_PATH="./outputs"
-export MAX_ITEMS=10
-
-python3 -u run_multi_react.py \
-  --dataset gen_sft \
-  --model_name doubao2.0 \
-  --output ./outputs \
-  --max_items 10
-```
-
-You can also use the existing helper script:
+Or use the helper script after replacing its `ark-xxx` and `xxx` credential placeholders:
 
 ```bash
 cd DataRoller
 bash scrpits/run.sh
 ```
 
-Note that `scrpits/run.sh` removes the configured output directory before running:
+> [!WARNING]
+> `DataRoller/scrpits/run.sh` clears the configured dataset output directory before starting. Invoke `run_multi_react.py` directly when previous rollouts must be preserved.
 
-```bash
-rm -rf "${OUTPUT_PATH:?}/${MODEL_NAME}/${DATASET}"
-```
-
-If you want to keep previous rollouts, call `run_multi_react.py` directly or edit the cleanup logic in `scrpits/run.sh`.
-
-### Outputs
-
-Main rollout file:
+The main trajectory file is written to:
 
 ```text
-DataRoller/outputs/{MODEL_NAME}/{DATASET}/iter1.jsonl
+DataRoller/outputs/<model_name>/<dataset>/iter1.jsonl
 ```
 
-Default generated image directory:
+Generated images are written under `DataRoller/outputs/` by default. Override the location with `DRAW_OUTPUT_DIR`.
 
-```text
-DataRoller/outputs/tool_resp_sft_en/
-```
+## 2. Supervised Fine-Tuning
 
-To change the image output directory:
+The SFT stage converts agent trajectories into tokenized interleaved text-image samples, optionally decodes selected samples for visual verification, and fine-tunes an Emu3.5 checkpoint with DeepSpeed ZeRO-2.
+
+### Environment
+
+The recommended runtime is Python 3.12, PyTorch 2.8.0, CUDA 12.8, and eight GPUs.
+
+#### Option A: Docker
 
 ```bash
-export DRAW_OUTPUT_DIR="./outputs/tool_images"
+bash env_scripts/build_images.sh sft
+
+docker run --gpus all -it --rm \
+  -v "$(pwd)":/workspace \
+  local/univr-sft:cu128-py312
 ```
 
-Each line in `iter1.jsonl` is one rollout result with fields such as:
-
-- `question`: Original image generation request.
-- `answer`: Reference answer from the input data.
-- `rollout_id`: Rollout id, currently `1`.
-- `messages`: Full multi-turn conversation and tool-call trajectory.
-- `prediction`: Final boxed answer, usually including the generated image path or failure reason.
-- `termination`: Termination status, such as `answer`, `answer not found`, or `exceed available llm calls`.
-- `error`: Present when a task fails with an exception.
-
-Failed samples do not stop the whole run. They are written as JSONL records with an `error` field, so they can be filtered or rerun later.
-
-### Troubleshooting
-
-**Missing `ARK_API_KEY`**
-
-Both the main model and the document reader require Ark access:
-
-```bash
-export ARK_API_KEY="your-ark-api-key"
-```
-
-**Empty search results**
-
-Check that `SERPER_API_KEY` is valid and that your environment can access:
-
-```text
-https://google.serper.dev/search
-https://google.serper.dev/images
-```
-
-**Image generation failure**
-
-Check that `GEMINI_API_KEY` is valid and that `GEMINI_MODEL` and `GEMINI_BASE_URL` match the image generation service available to you.
-
-**Large output files**
-
-`react_agent.py` clears `image_url` blocks before writing user messages to JSONL, which avoids storing large base64 images in the rollout file. Full tool trajectories can still be long, so start with a small `MAX_ITEMS` value when testing.
-
-## SFT
-
-The SFT stage turns rollout traces into tokenized training data and then fine-tunes Emu3.5. The v2 pipeline is the one to use now: it works directly on repo-relative paths, uses the current rollout format, and runs conversion in parallel across GPUs.
-
-### Environment Setup
-
-Use one of the following setups. Both target Python 3.12.
-
-#### Option 1: Conda
+#### Option B: Conda
 
 ```bash
 conda create -n toolartist-sft python=3.12 -y
@@ -260,34 +198,41 @@ conda activate toolartist-sft
 bash env_scripts/sft_env.sh
 ```
 
-This installs the SFT runtime stack, including torch 2.8.0, flash-attn, vLLM dependencies, transformers, datasets, trl, deepspeed, and the helper packages used by the training scripts.
+### Prepare Data
 
-#### Option 2: Docker
+Prepare the following local assets:
 
-```bash
-bash env_scripts/build_images.sh sft
-docker run --gpus all -it --rm -v "$(pwd)":/workspace local/univr-sft:cu128-py312
+```text
+Data/SFT/UPE_raw_gensearcher_sft_trace_relpath.jsonl  # rollout trajectories
+Data/SFT/image/                                       # referenced tool images
+Emu3.5-VisionTokenizer/                               # VQ tokenizer checkpoint
+checkpoints/Emu3.5/                                   # base model checkpoint
 ```
 
-If you prefer to build the image directly, use `env_scripts/Dockerfile.sft.public`:
+Convert the rollout traces on eight GPUs:
 
 ```bash
-docker build -f env_scripts/Dockerfile.sft.public -t local/univr-sft:cu128-py312 env_scripts
+NUM_GPUS=8 bash SFT/prepare_v2.sh
 ```
 
-The image already creates a Python 3.12 conda env and starts in `/workspace`.
-
-If you still have an older rollout dump with legacy prompts, normalize it with `SFT/replace_pe.py` before converting. The checked-in file at `Data/SFT/UPE_raw_gensearcher_sft_trace_relpath.jsonl` already matches the current workflow, so most runs can skip this step.
-
-### 1. Build the training set
+Useful overrides include:
 
 ```bash
+INPUT=/path/to/raw.jsonl \
+OUTPUT=/path/to/sft.jsonl \
+TOOL_RESP_DIR=/path/to/images \
+VQ_PATH=/path/to/Emu3.5-VisionTokenizer \
+NUM_GPUS=8 \
 bash SFT/prepare_v2.sh
 ```
 
-By default this reads `Data/SFT/UPE_raw_gensearcher_sft_trace_relpath.jsonl`, uses `Emu3.5/src/tokenizer_emu3_ibq` and `Emu3.5-VisionTokenizer`, loads generated images from `Data/SFT/image`, and writes `Data/SFT/converted_v2/sft.jsonl`.
+The default converted dataset is:
 
-### 2. Spot-check samples
+```text
+Data/SFT/converted_v2/sft.jsonl
+```
+
+Before a full run, optionally decode several converted samples:
 
 ```bash
 python3 SFT/verify_sample.py \
@@ -300,98 +245,148 @@ python3 SFT/verify_sample.py \
   --line-nos 1 5 11
 ```
 
-This is optional. It decodes a few samples back into images and writes a walkthrough under `SFT/verify_out/`, which is useful before a full training run.
+### Run
 
-### 3. Fine-tune
+Launch single-node distributed SFT:
 
 ```bash
+MODEL_PATH="$PWD/checkpoints/Emu3.5" \
+TRAIN_DATA="$PWD/Data/SFT/converted_v2/sft.jsonl" \
+OUTPUT_DIR="$PWD/outputs/sft" \
+NUM_GPUS=8 \
 bash SFT/sft.sh
 ```
 
-`SFT/sft.sh` reads `Data/SFT/converted_v2/sft.jsonl` and writes to `outputs/sft` by default. Update the model path in `SFT/sft.sh` to point at your local Emu3.5 checkpoint before running.
+The default recipe uses BF16, FlashAttention 2, DeepSpeed ZeRO-2, a maximum sequence length of 32,768, and one training epoch. Adjust the exported paths or `SFT/sft.sh` for your hardware and training schedule.
 
-## RL
+## 3. Reinforcement Learning
 
-The RL stage fine-tunes the SFT checkpoint with the same agentic rollout loop used for validation and data generation. The same rollout behavior is shared by the standalone service and the in-process GRPO worker.
-
-### Where Things Live
-
-- `Agentic_Image_Gen/run.py`: canonical multi-turn agent loop
-- `Agentic_Image_Gen/server.py`: standalone HTTP service with `/encode_images`, `/generate`, and `/health`
-- `Agentic_Image_Gen/start.sh`: launches the service
-- `Agentic_Image_Gen/run.sh`: single-dataset rollout client
-- `Agentic_Image_Gen/run_all.sh`: sharded rollout client
-- `RL/UniVR_RL/verl/workers/rollout/emu_agentic/`: in-process rollout backend used by GRPO training
-- `RL/UniVR_RL/examples/reward_function/`: reward functions
-- `RL/UniVR_RL/examples/config_emu_agentic_200step_big.yaml`: current public RL config
+The RL stage starts from the SFT checkpoint and trains it with GRPO. For every prompt, the policy executes a multi-turn agent loop, uses search and image tools, renders a final image, and receives a combined format/draw/caption/image reward.
 
 ### Environment
 
-Use the RL Docker image or any local Python 3.12 environment with the same dependencies.
-
-Build the public image:
+The public RL image targets Python 3.12, PyTorch 2.8.0, CUDA 12.8/12.9 components, vLLM 0.11.0, Ray 2.52.1, DeepSpeed, and the local UniVR-based RL stack.
 
 ```bash
 bash env_scripts/build_images.sh rl
+
+docker run --gpus all -it --rm \
+  --ipc=host \
+  -v "$(pwd)":/workspace \
+  local/univr-rl:cu128-py312
 ```
 
-Or build directly:
+Prepare these local assets:
 
-```bash
-docker build -f env_scripts/Dockerfile.rl.public -t local/univr-rl:cu128-py312 env_scripts
+```text
+checkpoints/emu3p5-sft/                 # checkpoint produced by SFT
+checkpoints/Emu3.5-VisionTokenizer/     # VQ tokenizer
+Data/RL/gen_rl.jsonl                    # RL prompts
 ```
 
-The image includes the RL dependencies, vLLM patches, and rollout runtime packages.
-
-### Standalone Rollout Service
-
-Start the service by pointing the rollout stack at your local model, VQ tokenizer, Emu3.5 source tree, and image output directory:
+The RL reward uses an Ark/Doubao judge. Export its credentials inside the runtime:
 
 ```bash
-EMU_MODEL_PATH=... \
-EMU_VQ_PATH=... \
-EMU_ROOT=... \
-EMU_IMAGE_SAVE_DIR=... \
+export ARK_API_KEY="your-ark-api-key"
+export ARK_MODEL="doubao-seed-2-0-pro-260215"
+export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
+
+# Optional: disable online Weights & Biases logging.
+export EMU_DISABLE_WANDB=1
+```
+
+### 3.1 Standalone Rollout
+
+The standalone mode runs the same canonical agent loop without launching RL training. Use it to verify a checkpoint, debug tools, inspect trajectories, or generate evaluation samples.
+
+#### Single-server rollout
+
+Start the model service in the first terminal:
+
+```bash
+EMU_MODEL_PATH="$PWD/checkpoints/emu3p5-sft" \
+EMU_VQ_PATH="$PWD/checkpoints/Emu3.5-VisionTokenizer" \
+EMU_ROOT="$PWD/Emu3.5" \
+EMU_IMAGE_SAVE_DIR="$PWD/outputs/rollout/images" \
+CUDA_VISIBLE_DEVICES=0,1 \
 bash Agentic_Image_Gen/start.sh
 ```
 
-Then run a client against it:
+Run the client in a second terminal:
 
 ```bash
-EMU_SERVER_URL=http://127.0.0.1:23333 \
-IMAGE_SAVE_DIR=./outputs/rollout/images \
-bash Agentic_Image_Gen/run.sh Data/RL/gen_rl.jsonl ./outputs/rollout
+EMU_SERVER_URL="http://127.0.0.1:23333" \
+IMAGE_SAVE_DIR="$PWD/outputs/rollout/images" \
+bash Agentic_Image_Gen/run.sh \
+  "$PWD/Data/RL/gen_rl.jsonl" \
+  "$PWD/outputs/rollout"
 ```
 
-For multi-GPU rollout, use `Agentic_Image_Gen/start_all.sh` together with `Agentic_Image_Gen/run_all.sh`.
+The resulting trajectory file is written to:
 
-This mode is useful for validation, dataset generation, and debugging without starting RL training.
+```text
+outputs/rollout/emu3p5-sft/gen_rl/iter1.jsonl
+```
 
-### RL Training
+#### Multi-GPU rollout
 
-The current public launcher is:
+For one rollout server per GPU, start the replicas and then launch the sharded clients:
 
 ```bash
+GPUS=0,1,2,3,4,5,6,7 \
+EMU_MODEL_PATH="$PWD/checkpoints/emu3p5-sft" \
+EMU_VQ_PATH="$PWD/checkpoints/Emu3.5-VisionTokenizer" \
+bash Agentic_Image_Gen/start_all.sh
+```
+
+In another terminal:
+
+```bash
+GPUS=0,1,2,3,4,5,6,7 \
+DATA_ROOT="$PWD/Data/RL" \
+DATASET_NAME="gen_rl" \
+bash Agentic_Image_Gen/run_all.sh
+```
+
+`run_all.sh` shards the JSONL round-robin, writes per-GPU logs and outputs under `Agentic_Image_Gen/workspace/`, and merges successful shard results into a `.merged` result directory.
+
+### 3.2 RL Training
+
+The current launcher is configured for a single node with eight GPUs, 200 optimization steps, 16 prompts per rollout batch, and eight trajectories per prompt.
+
+```bash
+EMU_MODEL_PATH="$PWD/checkpoints/emu3p5-sft" \
+EMU_VQ_PATH="$PWD/checkpoints/Emu3.5-VisionTokenizer" \
+EMU_AGENTIC_TRAIN_DATA="$PWD/Data/RL/gen_rl.jsonl" \
+ARK_API_KEY="$ARK_API_KEY" \
+EMU_DISABLE_WANDB=1 \
 bash RL/UniVR_RL/examples/emu_agentic_grpo_200step_big.sh
 ```
 
-That launcher wires together:
+To log online, omit `EMU_DISABLE_WANDB=1`, run `wandb login`, and optionally set `WANDB_ENTITY`.
 
-- `EMU_MODEL_PATH`: SFT checkpoint to optimize
-- `EMU_VQ_PATH`: vision tokenizer
-- `EMU_ROOT`: Emu3.5 source tree
-- `EMU_AGENT_TOOL_DIR`: tool implementations
-- `EMU_AGENTIC_TRAIN_DATA`: training JSONL
-- `ARK_API_KEY`: required by the Doubao judge
-- `ARK_MODEL`: judge model, defaulting to the configured Doubao model
-- `ARK_BASE_URL`: Ark base URL for the judge
-- `WANDB_MODE`: `online` or `offline`
+Important files:
 
-The reward function lives in `RL/UniVR_RL/examples/reward_function/emu_agentic_gensearcher_dual.py`.
-The rollout backend lives in `RL/UniVR_RL/verl/workers/rollout/emu_agentic/` and reuses the same `Agentic_Image_Gen/run.py` logic as the standalone service.
+- `RL/UniVR_RL/examples/emu_agentic_grpo_200step_big.sh` — paths, hardware, sampling settings, and launch command.
+- `RL/UniVR_RL/examples/config_emu_agentic_200step_big.yaml` — GRPO, FSDP, rollout, reward, and trainer configuration.
+- `RL/UniVR_RL/verl/workers/rollout/emu_agentic/` — in-process agentic rollout backend.
+- `RL/UniVR_RL/examples/reward_function/emu_agentic_gensearcher_dual.py` — caption and image judge reward.
+- `Agentic_Image_Gen/run.py` — canonical multi-turn agent behavior shared with standalone rollout.
 
-### Notes
+Training artifacts are saved under:
 
-- Keep repo docs relative, not tied to one machine path.
-- Do not commit personal tokens or private credentials.
-- If you use online wandb, provide your own credentials via login or a mounted `~/.netrc`.
+```text
+RL/experiments/<experiment_name>/
+├── train_<timestamp>.log
+├── images/stepNNN/
+├── traces/stepNNN.jsonl
+└── checkpoints/
+```
+
+Override `EXPERIMENT_NAME`, `PROJECT_NAME`, rollout limits, model paths, or sampling variables through environment variables defined in the launcher.
+
+## Acknowledgements
+
+We sincerely thank **Zhongwei Ren and the UniVR team** for their excellent work and open-source repository. The SFT/RL infrastructure in this project builds on and adapts components from [UniVR](https://github.com/MaverickRen/UniVR). We are grateful to the authors for making their research and code available to the community.
+
+We also thank the developers and maintainers of [Emu3.5](https://github.com/BAAI-DCAI/Emu3.5), [verl](https://github.com/volcengine/verl), vLLM, DeepSpeed, and the broader open-source community.
