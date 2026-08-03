@@ -2,7 +2,7 @@
 
 <img src="show/duck.png" width="100" alt="ToolArtist mascot">
 
-# 🎨 🖌️ ToolArtist : Tool-using UMM for Agnetic Image Gen
+# 🎨 ToolArtist : Tool-using UMM for Agnetic Image Gen
 
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bubble65/EMU-Agentic-PostTrain)
 [![arXiv](https://img.shields.io/badge/arXiv-Coming%20Soon-b31b1b?logo=arxiv)](#)
