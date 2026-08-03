@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="show/duck.png" width="150" alt="ToolArtist mascot">
+
 # 🎨 🖌️ ToolArtist
 
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bubble65/EMU-Agentic-PostTrain)
@@ -25,18 +27,17 @@ ToolArtist is an **agentic image generation model** post-trained from Emu3.5. It
 
 This repository follows a two-stage post-training recipe:
 
-1. **SFT** — collect teacher-model tool-use rollouts, convert successful trajectories into multimodal training samples, and fine-tune Emu3.5.
-2. **RL** — let ToolArtist perform online agentic rollouts and optimize the policy with GRPO.
-
+1. **SFT** — collect tool-use rollouts, convert successful trajectories into multimodal training samples, and fine-tune Emu3.5.
 <p align="center">
   <img src="show/methodv1.png" width="96%" alt="ToolArtist training method">
 </p>
+2. **RL** — let the SFT model perform online agentic rollouts and optimize the policy with GRPO.
+
 
 ## 📚 Contents
 
 - [Showcase](#showcase)
 - [Overview](#overview)
-- [Method](#method)
 - [Repository Layout](#repository-layout)
 - [1. Supervised Fine-Tuning](#sft)
   - [Teacher Data Rollout](#teacher-rollout)
@@ -46,10 +47,6 @@ This repository follows a two-stage post-training recipe:
   - [RL Training](#rl-training)
 - [Acknowledgements](#acknowledgements)
 
-<a id="method"></a>
-## 🧩 Method
-
-ToolArtist first collects agent trajectories with external search and image-generation tools. Successful trajectories are converted into the Emu3.5 interleaved text-image token format for cold-start SFT. The resulting checkpoint is then optimized with GRPO: each prompt produces a group of online agentic rollouts, and the policy is updated using format, drawing, caption-quality, and image-quality rewards.
 
 <a id="repository-layout"></a>
 ## 📁 Repository Layout
@@ -80,7 +77,7 @@ cd EMU-Agentic-PostTrain
 <a id="sft"></a>
 ## 1. 🧑‍🏫 Supervised Fine-Tuning
 
-The SFT stage has two steps: first collect tool-use trajectories from a teacher model, then convert those trajectories and fine-tune Emu3.5.
+The SFT stage has two steps: first collect tool-use trajectories from a teacher model, then normalize and convert those trajectories to fine-tune Emu3.5.
 
 <a id="teacher-rollout"></a>
 ### 1.1 🎓 Teacher Data Rollout
@@ -89,10 +86,7 @@ The SFT stage has two steps: first collect tool-use trajectories from a teacher 
 
 - `text_search` for factual web retrieval;
 - `image_search` for visual references;
-- `reader` for query-focused page extraction;
 - `draw` for image generation and editing.
-
-The full conversation, tool calls, final prediction, output image path, and termination state are saved as JSONL for SFT data preparation.
 
 #### Environment
 
@@ -106,37 +100,13 @@ pip install "qwen-agent[gui,rag,code_interpreter,mcp]"
 pip install soundfile openai pillow requests tiktoken rich
 ```
 
-Configure the model and tool services:
+Configure the API credentials, model name, dataset name, output directory, and rollout limit in:
 
-```bash
-# Main rollout model and document reader
-export ARK_API_KEY="your-ark-api-key"
-export ARK_MODEL="doubao-seed-2-0-pro-260215"
-export ARK_BASE_URL="https://ark.cn-beijing.volces.com/api/v3"
-
-# Text and image search
-export SERPER_API_KEY="your-serper-api-key"
-
-# Image generation / editing
-export GEMINI_API_KEY="your-gemini-api-key"
-export GEMINI_BASE_URL="https://generativelanguage.googleapis.com/v1beta"
-export GEMINI_MODEL="gemini-3-pro-image"
-export GEMINI_ASPECT_RATIO="4:3"
-export GEMINI_IMAGE_SIZE="1K"
-export GEMINI_RESPONSE_MIME_TYPE="image/png"
+```text
+DataRoller/scrpits/run.sh
 ```
 
-Optional runtime controls:
-
-```bash
-export MODEL_NAME="doubao2.0"
-export DATASET="gen_sft"
-export OUTPUT_PATH="./outputs"
-export MAX_ITEMS=10
-export MAX_OUTPUT_TOKENS=4096
-export TEMPERATURE=0.0
-export TOP_P=1.0
-```
+Replace the placeholder values for the Ark model, Serper search, and Gemini image-generation services before running the script.
 
 #### Input Data
 
@@ -158,28 +128,10 @@ DataRoller/data/gen_sft.jsonl
 
 #### Run
 
-Start with a small batch:
-
-```bash
-cd DataRoller
-
-python3 -u run_multi_react.py \
-  --model "$ARK_MODEL" \
-  --model_name "$MODEL_NAME" \
-  --dataset "$DATASET" \
-  --output "$OUTPUT_PATH" \
-  --max_items "$MAX_ITEMS"
-```
-
-Or use the helper script after replacing its `ark-xxx` and `xxx` credential placeholders:
-
 ```bash
 cd DataRoller
 bash scrpits/run.sh
 ```
-
-> [!WARNING]
-> `DataRoller/scrpits/run.sh` clears the configured dataset output directory before starting. Invoke `run_multi_react.py` directly when previous rollouts must be preserved.
 
 The main trajectory file is written to:
 
@@ -196,7 +148,7 @@ The SFT stage converts agent trajectories into tokenized interleaved text-image 
 
 #### Environment
 
-The recommended runtime is Python 3.12, PyTorch 2.8.0, CUDA 12.8, and eight GPUs.
+The recommended runtime is Python 3.12, PyTorch 2.8.0, CUDA 12.8.
 
 ##### Option A: Docker
 
@@ -221,16 +173,31 @@ bash env_scripts/sft_env.sh
 Prepare the following local assets:
 
 ```text
-Data/SFT/UPE_raw_gensearcher_sft_trace_relpath.jsonl  # rollout trajectories
-Data/SFT/image/                                       # referenced tool images
+DataRoller/outputs/<model_name>/<dataset>/iter1.jsonl  # teacher rollouts from Section 1.1
+Data/SFT/image/                                        # local copy or symlink of rollout images
 Emu3.5-VisionTokenizer/                               # VQ tokenizer checkpoint
 checkpoints/Emu3.5/                                   # base model checkpoint
 ```
 
+Copy or symlink the images referenced by the rollout JSONL into `Data/SFT/image/` before conversion.
+
+Normalize legacy prompts by replacing them with the current English prompt template:
+
+```bash
+INPUT="$PWD/DataRoller/outputs/<model_name>/<dataset>/iter1.jsonl" \
+OUTPUT="$PWD/Data/SFT/normalized_rollout.jsonl" \
+bash SFT/replace.sh
+```
+
+`SFT/replace.sh` calls `SFT/replace_pe.py`, which loads the current system and user prompts from `SFT/PE.py` while preserving each sample's original question and tool trajectory.
+
 Convert the rollout traces on eight GPUs:
 
 ```bash
-NUM_GPUS=8 bash SFT/prepare_v2.sh
+INPUT="$PWD/Data/SFT/normalized_rollout.jsonl" \
+TOOL_RESP_DIR="$PWD/Data/SFT/image" \
+NUM_GPUS=8 \
+bash SFT/prepare_v2.sh
 ```
 
 Useful overrides include:
@@ -250,18 +217,6 @@ The default converted dataset is:
 Data/SFT/converted_v2/sft.jsonl
 ```
 
-Before a full run, optionally decode several converted samples:
-
-```bash
-python3 SFT/verify_sample.py \
-  --sft Data/SFT/converted_v2/sft.jsonl \
-  --raw Data/SFT/UPE_raw_gensearcher_sft_trace_relpath.jsonl \
-  --tool-resp-dir Data/SFT/image \
-  --vq-path Emu3.5-VisionTokenizer \
-  --tokenizer-path Emu3.5/src/tokenizer_emu3_ibq \
-  --out SFT/verify_out \
-  --line-nos 1 5 11
-```
 
 #### Run
 
@@ -280,7 +235,7 @@ The default recipe uses BF16, FlashAttention 2, DeepSpeed ZeRO-2, a maximum sequ
 <a id="rl"></a>
 ## 2. 🔥 Reinforcement Learning
 
-The RL stage starts from the SFT checkpoint and trains it with GRPO. For every prompt, the policy executes a multi-turn agent loop, uses search and image tools, renders a final image, and receives a combined format/draw/caption/image reward.
+The RL stage starts from the SFT checkpoint and trains it with GRPO.
 
 ### 🛠️ Environment
 
@@ -303,7 +258,7 @@ checkpoints/Emu3.5-VisionTokenizer/     # VQ tokenizer
 Data/RL/gen_rl.jsonl                    # RL prompts
 ```
 
-The RL reward uses an Ark/Doubao judge. Export its credentials inside the runtime:
+The default RL reward uses a Doubao judge. You may replace it with another OpenAI-compatible judge by setting the corresponding model, API key, and base URL:
 
 ```bash
 export ARK_API_KEY="your-ark-api-key"
@@ -373,26 +328,18 @@ bash Agentic_Image_Gen/run_all.sh
 <a id="rl-training"></a>
 ### 2.2 🏋️ RL Training
 
-The current launcher is configured for a single node with eight GPUs, 200 optimization steps, 16 prompts per rollout batch, and eight trajectories per prompt.
-
 ```bash
 EMU_MODEL_PATH="$PWD/checkpoints/emu3p5-sft" \
 EMU_VQ_PATH="$PWD/checkpoints/Emu3.5-VisionTokenizer" \
 EMU_AGENTIC_TRAIN_DATA="$PWD/Data/RL/gen_rl.jsonl" \
 ARK_API_KEY="$ARK_API_KEY" \
 EMU_DISABLE_WANDB=1 \
-bash RL/UniVR_RL/examples/emu_agentic_grpo_200step_big.sh
+bash RL/UniVR_RL/examples/emu_agentic_grpo.sh
 ```
 
+The launcher reads its GRPO, rollout, reward, and trainer settings from `RL/UniVR_RL/examples/config_emu_agentic.yaml`.
+
 To log online, omit `EMU_DISABLE_WANDB=1`, run `wandb login`, and optionally set `WANDB_ENTITY`.
-
-Important files:
-
-- `RL/UniVR_RL/examples/emu_agentic_grpo_200step_big.sh` — paths, hardware, sampling settings, and launch command.
-- `RL/UniVR_RL/examples/config_emu_agentic_200step_big.yaml` — GRPO, FSDP, rollout, reward, and trainer configuration.
-- `RL/UniVR_RL/verl/workers/rollout/emu_agentic/` — in-process agentic rollout backend.
-- `RL/UniVR_RL/examples/reward_function/emu_agentic_gensearcher_dual.py` — caption and image judge reward.
-- `Agentic_Image_Gen/run.py` — canonical multi-turn agent behavior shared with standalone rollout.
 
 Training artifacts are saved under:
 
@@ -409,6 +356,6 @@ Override `EXPERIMENT_NAME`, `PROJECT_NAME`, rollout limits, model paths, or samp
 <a id="acknowledgements"></a>
 ## 🙏 Acknowledgements
 
-We sincerely thank **Zhongwei Ren and the UniVR team** for their excellent work and open-source repository. The SFT/RL infrastructure in this project builds on and adapts components from [UniVR](https://github.com/MaverickRen/UniVR). We are grateful to the authors for making their research and code available to the community.
+We sincerely thank **UniVR team** for their excellent work and open-source repository. The RL infrastructure in this project builds on and adapts components from [UniVR](https://github.com/MaverickRen/UniVR). We are grateful to the authors for making their research and code available to the community.
 
-We also thank the developers and maintainers of [Emu3.5](https://github.com/BAAI-DCAI/Emu3.5), [verl](https://github.com/volcengine/verl), vLLM, DeepSpeed, and the broader open-source community.
+We also thank the developers and maintainers of [Emu3.5](https://github.com/BAAI-DCAI/Emu3.5) and the broader open-source community.

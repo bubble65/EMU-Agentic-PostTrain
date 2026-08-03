@@ -14,7 +14,7 @@
 #
 # Run:
 #   cd RL
-#   bash UniVR_RL/examples/emu_agentic_grpo_200step_big.sh
+#   bash UniVR_RL/examples/emu_agentic_grpo.sh
 # ============================================================================
 
 set -euo pipefail
@@ -128,7 +128,7 @@ fi
 
 # ── Experiment naming + output paths ──────────────────────────────────────
 PROJECT_NAME="${PROJECT_NAME:-Emu3_Agentic_RL_Roll}"
-EXPERIMENT_NAME="${EXPERIMENT_NAME:-emu_agentic_200step_big}"
+EXPERIMENT_NAME="${EXPERIMENT_NAME:-emu_agentic_grpo}"
 EXP_DIR="${RL_ROLL_ROOT}/experiments/${EXPERIMENT_NAME}"
 IMAGE_SAVE_DIR="${EXP_DIR}/images"
 TRACE_DIR="${EXP_DIR}/traces"
@@ -155,7 +155,7 @@ EOF
 cd "${UNIVR_RL_PATH}"
 
 python3 -m verl.trainer.main \
-    config=examples/config_emu_agentic_200step_big.yaml \
+    config=examples/config_emu_agentic.yaml \
     data.train_files="${TRAIN_DATA}" \
     worker.actor.model.model_path="${LOCAL_MODEL}" \
     worker.actor.model.tokenizer_path="${TOKENIZER_PATH}" \

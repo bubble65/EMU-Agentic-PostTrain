@@ -170,7 +170,7 @@ trainer:
   total_epochs: 100             # Step-bounded, epoch is just a high cap.
   max_steps: 200                # ← 200-step main run
   project_name: Emu3_Agentic_RL_Roll
-  experiment_name: emu_agentic_200step_big
+  experiment_name: emu_agentic_grpo
   logger: ["console", "file", "wandb"]   # wandb cloud via company proxy + API key
   nnodes: 1
   n_gpus_per_node: 8
