@@ -99,7 +99,7 @@ DataRoller/scrpits/run.sh
 
 Replace the placeholder values for the Ark model, Serper search, and Gemini image-generation services before running the script.
 
-#### Input Data
+#### 📖 Input Data
 
 Place one JSON object per line in `DataRoller/data/<dataset>.jsonl`:
 
@@ -117,7 +117,7 @@ An example SFT rollout input is included:
 DataRoller/data/gen_sft.jsonl
 ```
 
-#### Run
+#### 🏃 Run
 
 ```bash
 cd DataRoller
