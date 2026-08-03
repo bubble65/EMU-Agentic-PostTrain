@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="show/duck.png" width="150" alt="ToolArtist mascot">
+<img src="show/duck.png" width="100" alt="ToolArtist mascot">
 
-# 🎨 🖌️ ToolArtist
+# 🎨 🖌️ ToolArtist : Tool-using UMM for Agnetic Image Gen
 
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bubble65/EMU-Agentic-PostTrain)
 [![arXiv](https://img.shields.io/badge/arXiv-Coming%20Soon-b31b1b?logo=arxiv)](#)
@@ -31,6 +31,7 @@ This repository follows a two-stage post-training recipe:
 <p align="center">
   <img src="show/methodv1.png" width="96%" alt="ToolArtist training method">
 </p>
+
 2. **RL** — let the SFT model perform online agentic rollouts and optimize the policy with GRPO.
 
 
@@ -64,16 +65,6 @@ EMU-Agentic-PostTrain/
 └── show/                    # overview and method figures
 ```
 
-Clone the repository and enter its root directory before following the commands below:
-
-```bash
-git clone git@github.com:bubble65/EMU-Agentic-PostTrain.git
-cd EMU-Agentic-PostTrain
-```
-
-> [!IMPORTANT]
-> Model checkpoints, raw datasets, converted data, generated images, and experiment outputs are intentionally excluded from Git. Prepare them locally under the paths shown below. Never commit API keys.
-
 <a id="sft"></a>
 ## 1. 🧑‍🏫 Supervised Fine-Tuning
 
@@ -88,7 +79,7 @@ The SFT stage has two steps: first collect tool-use trajectories from a teacher 
 - `image_search` for visual references;
 - `draw` for image generation and editing.
 
-#### Environment
+#### 🛠️ Environment
 
 Python 3.10 or newer is recommended for data construction.
 
@@ -146,7 +137,7 @@ Generated images are written under `DataRoller/outputs/` by default. Override th
 
 The SFT stage converts agent trajectories into tokenized interleaved text-image samples, optionally decodes selected samples for visual verification, and fine-tunes an Emu3.5 checkpoint with DeepSpeed ZeRO-2.
 
-#### Environment
+#### 🛠️ Environment
 
 The recommended runtime is Python 3.12, PyTorch 2.8.0, CUDA 12.8.
 
@@ -237,7 +228,7 @@ The default recipe uses BF16, FlashAttention 2, DeepSpeed ZeRO-2, a maximum sequ
 
 The RL stage starts from the SFT checkpoint and trains it with GRPO.
 
-### 🛠️ Environment
+#### 🛠️ Environment
 
 The public RL image targets Python 3.12, PyTorch 2.8.0, CUDA 12.8/12.9 components, vLLM 0.11.0, Ray 2.52.1, DeepSpeed, and the local UniVR-based RL stack.
 
