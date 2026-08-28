@@ -48,6 +48,15 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+# Emu3.5 uses imports such as ``from src.utils...``.  The directory that
+# contains that top-level ``src`` package is Emu3.5, not PROJECT_ROOT.
+# Add it here instead of relying on the caller's working directory or
+# PYTHONPATH so convert_v2.py also works when invoked directly.
+EMU35_ROOT = os.path.join(PROJECT_ROOT, "Emu3.5")
+if EMU35_ROOT not in sys.path:
+    sys.path.insert(0, EMU35_ROOT)
+
+
 DEFAULT_TOKENIZER_PATH = os.path.join(PROJECT_ROOT, "Emu3.5", "src", "tokenizer_emu3_ibq")
 DEFAULT_TOOL_RESP_DIR = os.path.join(PROJECT_ROOT, "Data", "SFT", "image")
 
