@@ -4,11 +4,6 @@
 
 # 🎨 ToolArtist : Tool-using UMM for Agnetic Image Gen
 
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-181717?logo=github)](https://github.com/bubble65/EMU-Agentic-PostTrain)
-[![arXiv](https://img.shields.io/badge/arXiv-Coming%20Soon-b31b1b?logo=arxiv)](#)
-[![Hugging Face](https://img.shields.io/badge/🤗%20Hugging%20Face-Coming%20Soon-yellow)](#)
-<!-- Replace the placeholder links above when the paper and Hugging Face resources are released. -->
-
 </div>
 
 <a id="showcase"></a>
